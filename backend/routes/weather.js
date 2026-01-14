@@ -59,7 +59,7 @@ router.get("/:city", async (req, res) => {
   try {
     const { city } = req.params;
 
-    // Check cache
+    // Cache check
     const cacheKey = `weather_${city}`;
     const cached = weatherCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 600000) {
@@ -74,28 +74,62 @@ router.get("/:city", async (req, res) => {
 
     // Fetch weather
     const weatherRes = await axios.get(
-      `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,relative_humidity_2m,precipitation,cloud_cover,pressure_msl,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,pressure_msl&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
+      `https://api.open-meteo.com/v1/forecast`,
+      {
+        params: {
+          latitude: coords.lat,
+          longitude: coords.lon,
+          current:
+            "temperature_2m,relative_humidity_2m,precipitation,cloud_cover,pressure_msl,wind_speed_10m",
+          hourly:
+            "temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,pressure_msl",
+          daily: "temperature_2m_max,temperature_2m_min,precipitation_sum",
+          timezone: "auto",
+        },
+      }
     );
+
+    const current = weatherRes.data.current;
+    if (!current) {
+      return res.status(502).json({ error: "Invalid weather API response" });
+    }
+
+    // Normalize hourly data into array
+    const hourlyRaw = weatherRes.data.hourly;
+    const hourly = hourlyRaw.time.map((time, i) => ({
+      time,
+      temperature: hourlyRaw.temperature_2m[i],
+      humidity: hourlyRaw.relative_humidity_2m[i],
+      precipitationProbability: hourlyRaw.precipitation_probability[i],
+      cloudCover: hourlyRaw.cloud_cover[i],
+      pressure: hourlyRaw.pressure_msl[i],
+    }));
 
     const weatherData = {
       city: coords.name,
-      temperature: weatherRes.data.current.temperature_2m,
-      humidity: weatherRes.data.current.relative_humidity_2m,
-      pressure: weatherRes.data.current.pressure_msl,
-      windSpeed: weatherRes.data.current.wind_speed_10m,
-      cloudCover: weatherRes.data.current.cloud_cover,
-      precipitation: weatherRes.data.current.precipitation,
-      hourly: weatherRes.data.hourly,
+      temperature: current.temperature_2m,
+      humidity: current.relative_humidity_2m,
+      pressure: current.pressure_msl,
+      windSpeed: current.wind_speed_10m,
+      cloudCover: current.cloud_cover,
+      precipitation: current.precipitation,
+      hourly, // now an ARRAY
       daily: weatherRes.data.daily,
     };
 
-    // Cache it
+    // Cache result
     weatherCache.set(cacheKey, { data: weatherData, timestamp: Date.now() });
 
     res.json(weatherData);
   } catch (error) {
-    console.error("Weather fetch error:", error.message);
-    res.status(500).json({ error: "Failed to fetch weather data" });
+    console.error(
+      "Weather fetch error:",
+      error.response?.data || error.message
+    );
+    res.status(500).json({
+      error: "Failed to fetch weather data",
+      details: error.message,
+    });
   }
 });
 
