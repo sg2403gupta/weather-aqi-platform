@@ -58,16 +58,17 @@ async function getCoordinates(cityName) {
 router.get("/:city", async (req, res) => {
   try {
     const { city } = req.params;
+    const cityKey = city.toLowerCase().trim();
 
     // Cache check
-    const cacheKey = `weather_${city}`;
+    const cacheKey = `weather_${cityKey}`;
     const cached = weatherCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 600000) {
       return res.json(cached.data);
     }
 
     // Get coordinates
-    const coords = await getCoordinates(city);
+    const coords = await getCoordinates(cityKey);
     if (!coords) {
       return res.status(404).json({ error: "City not found" });
     }
@@ -86,6 +87,7 @@ router.get("/:city", async (req, res) => {
           daily: "temperature_2m_max,temperature_2m_min,precipitation_sum",
           timezone: "auto",
         },
+        timeout: 8000,
       }
     );
 
@@ -94,15 +96,20 @@ router.get("/:city", async (req, res) => {
       return res.status(502).json({ error: "Invalid weather API response" });
     }
 
-    // Normalize hourly data into array
+    // Normalize hourly data into array (SAFE)
     const hourlyRaw = weatherRes.data.hourly;
+
+    if (!hourlyRaw?.time?.length) {
+      return res.status(502).json({ error: "Hourly weather data missing" });
+    }
+
     const hourly = hourlyRaw.time.map((time, i) => ({
       time,
-      temperature: hourlyRaw.temperature_2m[i],
-      humidity: hourlyRaw.relative_humidity_2m[i],
-      precipitationProbability: hourlyRaw.precipitation_probability[i],
-      cloudCover: hourlyRaw.cloud_cover[i],
-      pressure: hourlyRaw.pressure_msl[i],
+      temperature: hourlyRaw.temperature_2m?.[i],
+      humidity: hourlyRaw.relative_humidity_2m?.[i],
+      precipitationProbability: hourlyRaw.precipitation_probability?.[i],
+      cloudCover: hourlyRaw.cloud_cover?.[i],
+      pressure: hourlyRaw.pressure_msl?.[i],
     }));
 
     const weatherData = {
@@ -113,7 +120,7 @@ router.get("/:city", async (req, res) => {
       windSpeed: current.wind_speed_10m,
       cloudCover: current.cloud_cover,
       precipitation: current.precipitation,
-      hourly, // now an ARRAY
+      hourly, // ARRAY for frontend .map()
       daily: weatherRes.data.daily,
     };
 
@@ -126,6 +133,7 @@ router.get("/:city", async (req, res) => {
       "Weather fetch error:",
       error.response?.data || error.message
     );
+
     res.status(500).json({
       error: "Failed to fetch weather data",
       details: error.message,
