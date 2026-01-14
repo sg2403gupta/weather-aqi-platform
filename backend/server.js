@@ -5,13 +5,26 @@ require("dotenv").config();
 
 const app = express();
 
-// Middleware
+// Allowed frontend origins (exact match only)
+const allowedOrigins = [
+  "https://weather-aqi-platform.vercel.app",
+  "http://localhost:5173",
+];
+
+// CORS Middleware
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "*",
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
+
 app.use(express.json());
 
 // Health check route
@@ -23,7 +36,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// MongoDB Connection (optional for now)
+// MongoDB Connection (optional)
 if (process.env.MONGODB_URI) {
   mongoose
     .connect(process.env.MONGODB_URI, {
