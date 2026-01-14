@@ -1,0 +1,15 @@
+@import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Baumans&display=swap");
+
+@layer base {
+  * {
+    font-family: "Baumans", sans-serif;
+  }
+
+  :root {
+    --primary: #0f2854;
+    --secondary: #1c4d8d;
+    --accent: #4988c4;
+    --light: #bde8f5;
+  }
+}
