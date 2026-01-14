@@ -57,39 +57,13 @@ const WeatherAQIPlatform = () => {
     const cached = apiCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 600000) return cached.data;
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,relative_humidity_2m,precipitation,cloud_cover,pressure_msl,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,pressure_msl&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
-    const res = await fetch(url);
+    // Use backend API instead of direct call
+    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+    const res = await fetch(`${apiUrl}/api/weather/${coords.name}`);
     const data = await res.json();
 
-    const result = {
-      temperature: data.current.temperature_2m,
-      humidity: data.current.relative_humidity_2m,
-      precipitation: data.current.precipitation,
-      cloudCover: data.current.cloud_cover,
-      pressure: data.current.pressure_msl,
-      windSpeed: data.current.wind_speed_10m,
-      hourly: data.hourly.time.slice(0, 48).map((time, i) => ({
-        time: new Date(time).toLocaleTimeString("en-US", { hour: "2-digit" }),
-        temperature: data.hourly.temperature_2m[i],
-        humidity: data.hourly.relative_humidity_2m[i],
-        precipitation: data.hourly.precipitation_probability[i],
-        cloudcover: data.hourly.cloud_cover[i],
-        pressure: data.hourly.pressure_msl[i],
-      })),
-      daily: data.daily.time.map((time, i) => ({
-        date: new Date(time).toLocaleDateString("en-US", {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-        }),
-        maxTemp: data.daily.temperature_2m_max[i],
-        minTemp: data.daily.temperature_2m_min[i],
-        precipitation: data.daily.precipitation_sum[i],
-      })),
-    };
-
-    apiCache.set(cacheKey, { data: result, timestamp: Date.now() });
-    return result;
+    apiCache.set(cacheKey, { data, timestamp: Date.now() });
+    return data;
   }, []);
 
   // Simulated AQI
