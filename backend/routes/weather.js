@@ -96,9 +96,8 @@ router.get("/:city", async (req, res) => {
       return res.status(502).json({ error: "Invalid weather API response" });
     }
 
-    // Normalize hourly data into array (SAFE)
+    /* -------------------- HOURLY (Normalize to Array) -------------------- */
     const hourlyRaw = weatherRes.data.hourly;
-
     if (!hourlyRaw?.time?.length) {
       return res.status(502).json({ error: "Hourly weather data missing" });
     }
@@ -112,6 +111,19 @@ router.get("/:city", async (req, res) => {
       pressure: hourlyRaw.pressure_msl?.[i],
     }));
 
+    /* -------------------- DAILY (Normalize to Array) -------------------- */
+    const dailyRaw = weatherRes.data.daily;
+    let daily = [];
+
+    if (dailyRaw?.time?.length) {
+      daily = dailyRaw.time.map((date, i) => ({
+        date,
+        maxTemp: dailyRaw.temperature_2m_max?.[i],
+        minTemp: dailyRaw.temperature_2m_min?.[i],
+        precipitation: dailyRaw.precipitation_sum?.[i],
+      }));
+    }
+
     const weatherData = {
       city: coords.name,
       temperature: current.temperature_2m,
@@ -121,7 +133,7 @@ router.get("/:city", async (req, res) => {
       cloudCover: current.cloud_cover,
       precipitation: current.precipitation,
       hourly, // ARRAY for frontend .map()
-      daily: weatherRes.data.daily,
+      daily, // ARRAY for frontend .map()
     };
 
     // Cache result
