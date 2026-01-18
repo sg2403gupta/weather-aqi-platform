@@ -61,7 +61,8 @@ const WeatherAQIPlatform = () => {
       return cached.data;
     }
 
-    const apiUrl = "http://localhost:5000";
+    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
     const res = await fetch(`${apiUrl}/api/weather/${coords.name}`);
     const rawData = await res.json();
 
