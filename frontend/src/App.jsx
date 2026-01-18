@@ -30,16 +30,17 @@ const WeatherAQIPlatform = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Geocoding with caching
+  // Geocoding
   const getCoordinates = async (cityName) => {
     const cacheKey = `geo_${cityName}`;
     if (apiCache.has(cacheKey)) return apiCache.get(cacheKey);
 
     const res = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${cityName}&count=1`
+      `https://geocoding-api.open-meteo.com/v1/search?name=${cityName}&count=1`,
     );
     const data = await res.json();
-    if (data.results && data.results.length > 0) {
+
+    if (data?.results?.length > 0) {
       const coords = {
         lat: data.results[0].latitude,
         lon: data.results[0].longitude,
@@ -51,26 +52,37 @@ const WeatherAQIPlatform = () => {
     return null;
   };
 
-  // Fetch weather data
+  // Weather API
   const fetchWeatherData = useCallback(async (coords) => {
     const cacheKey = `weather_${coords.lat}_${coords.lon}`;
     const cached = apiCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 600000) return cached.data;
 
-    // Use backend API instead of direct call
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+    if (cached && Date.now() - cached.timestamp < 600000) {
+      return cached.data;
+    }
+
+    const apiUrl = "http://localhost:5000";
     const res = await fetch(`${apiUrl}/api/weather/${coords.name}`);
-    const data = await res.json();
+    const rawData = await res.json();
 
-    apiCache.set(cacheKey, { data, timestamp: Date.now() });
-    return data;
+    const safeData = {
+      ...rawData,
+      hourly: Array.isArray(rawData?.hourly) ? rawData.hourly : [],
+      daily: Array.isArray(rawData?.daily) ? rawData.daily : [],
+    };
+
+    apiCache.set(cacheKey, { data: safeData, timestamp: Date.now() });
+    return safeData;
   }, []);
 
-  // Simulated AQI
+  // AQI (simulated)
   const fetchAQI = useCallback(async (coords) => {
     const cacheKey = `aqi_${coords.lat}_${coords.lon}`;
     const cached = apiCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 900000) return cached.data;
+
+    if (cached && Date.now() - cached.timestamp < 900000) {
+      return cached.data;
+    }
 
     const baseAQI = Math.floor(Math.random() * 150) + 20;
     const result = {
@@ -84,17 +96,13 @@ const WeatherAQIPlatform = () => {
     return result;
   }, []);
 
-  // Main data fetch
+  // Main fetch
   const fetchData = useCallback(
     async (cityName) => {
       setLoading(true);
       try {
         const coords = await getCoordinates(cityName);
-        if (!coords) {
-          alert("City not found. Please try another city.");
-          setLoading(false);
-          return;
-        }
+        if (!coords) return;
 
         const [weatherData, aqiData] = await Promise.all([
           fetchWeatherData(coords),
@@ -105,23 +113,30 @@ const WeatherAQIPlatform = () => {
         setForecast(weatherData.daily);
         setAqi(aqiData.aqi);
 
-        const prediction = predictRain(weatherData.hourly);
-        setRainPrediction(prediction);
+        const prediction = weatherData.hourly.length
+          ? predictRain(weatherData.hourly)
+          : null;
 
-        const alertList = generateAlerts(weatherData, aqiData.aqi, prediction);
-        setAlerts(alertList);
+        setRainPrediction(prediction);
+        setAlerts(generateAlerts(weatherData, aqiData.aqi, prediction));
 
         const trendData = calculateTrends(
-          weatherData.daily.map((d) => ({ temperature: d.maxTemp }))
+          weatherData.daily.map((d) => ({
+            temperature: d.maxTemp,
+          })),
         );
         setTrends(trendData);
       } catch (error) {
         console.error("Error fetching data:", error);
-        alert("Error loading data. Please try again.");
+        setWeather(null);
+        setForecast([]);
+        setAlerts([]);
+        setTrends(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     },
-    [fetchWeatherData, fetchAQI]
+    [fetchWeatherData, fetchAQI],
   );
 
   useEffect(() => {
@@ -134,16 +149,10 @@ const WeatherAQIPlatform = () => {
     }
   };
 
-  // Loading state
   if (loading && !weather) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#BDE8F5] px-4">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-[#4988C4] mx-auto mb-4" />
-          <p className="text-[#0F2854] text-sm sm:text-base">
-            Loading weather data...
-          </p>
-        </div>
+        <Loader2 className="w-12 h-12 animate-spin text-[#4988C4]" />
       </div>
     );
   }
@@ -151,21 +160,17 @@ const WeatherAQIPlatform = () => {
   return (
     <div className="min-h-screen bg-[#BDE8F5] px-3 sm:px-6 py-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <Header
           searchInput={searchInput}
           setSearchInput={setSearchInput}
           handleSearch={handleSearch}
         />
 
-        {/* Alerts */}
         {alerts.length > 0 && <AlertsPanel alerts={alerts} />}
 
-        {/* Navigation */}
         <NavigationTabs activeTab={activeTab} setActiveTab={setActiveTab} />
 
-        {/* Overview */}
-        {activeTab === "overview" && weather && weather.hourly && (
+        {activeTab === "overview" && weather && (
           <OverviewTab
             weather={weather}
             city={city}
@@ -174,20 +179,14 @@ const WeatherAQIPlatform = () => {
           />
         )}
 
-        {/* Forecast */}
-        {activeTab === "forecast" &&
-          weather &&
-          weather.hourly &&
-          forecast.length > 0 && (
-            <ForecastTab forecast={forecast} weather={weather} />
-          )}
+        {activeTab === "forecast" && forecast.length > 0 && (
+          <ForecastTab forecast={forecast} weather={weather} />
+        )}
 
-        {/* Analytics */}
         {activeTab === "analytics" && trends && (
           <AnalyticsTab trends={trends} forecast={forecast} />
         )}
 
-        {/* Footer */}
         <Footer />
       </div>
     </div>
