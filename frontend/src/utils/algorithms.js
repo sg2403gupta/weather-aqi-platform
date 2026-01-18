@@ -2,12 +2,14 @@ import { MinHeap } from "./dataStructures";
 
 // Rain Prediction Algorithm (Sliding Window + Heuristics)
 export const predictRain = (forecastData) => {
-  if (!forecastData || forecastData.length === 0)
-    return { probability: 0, factors: [] };
+  if (!forecastData || forecastData.length === 0) {
+    return { probability: 0, factors: [], confidence: "Low" };
+  }
 
   let score = 0;
   const factors = [];
 
+  // Sliding window - next 24 hours
   const window = forecastData.slice(0, 24);
   const avgHumidity =
     window.reduce((sum, h) => sum + (h.humidity || 0), 0) / window.length;
@@ -16,9 +18,10 @@ export const predictRain = (forecastData) => {
   const avgCloud =
     window.reduce((sum, h) => sum + (h.cloudcover || 0), 0) / window.length;
 
+  // Heuristic rules
   if (avgHumidity > 80) {
     score += 30;
-    factors.push("High humidity");
+    factors.push("High humidity detected");
   }
   if (avgHumidity > 90) {
     score += 20;
@@ -26,17 +29,18 @@ export const predictRain = (forecastData) => {
   }
   if (avgPressure < 1010) {
     score += 25;
-    factors.push("Low pressure");
+    factors.push("Low atmospheric pressure");
   }
   if (avgCloud > 70) {
     score += 25;
     factors.push("Heavy cloud cover");
   }
 
-  const hasPrecip = window.some((h) => (h.precipitation || 0) > 0);
+  // Check for precipitation in forecast
+  const hasPrecip = window.some((h) => (h.precipitation || 0) > 50);
   if (hasPrecip) {
     score += 30;
-    factors.push("Precipitation detected");
+    factors.push("Precipitation in forecast");
   }
 
   return {
@@ -123,6 +127,15 @@ export const generateAlerts = (weather, aqi, rainPrediction) => {
     });
   }
 
+  if (weather && weather.temperature < -10) {
+    alertQueue.push({
+      priority: 1,
+      type: "Cold",
+      message: `Extreme cold warning: ${weather.temperature}°C`,
+      severity: "warning",
+    });
+  }
+
   const alerts = [];
   while (alertQueue.size() > 0) {
     alerts.push(alertQueue.pop());
@@ -135,7 +148,7 @@ export const calculateTrends = (historicalData) => {
   if (!historicalData || historicalData.length === 0) return null;
 
   const sorted = [...historicalData].sort(
-    (a, b) => b.temperature - a.temperature
+    (a, b) => b.temperature - a.temperature,
   );
   const temps = historicalData.map((d) => d.temperature);
 

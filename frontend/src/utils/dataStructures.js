@@ -25,9 +25,17 @@ export class LRUCache {
   has(key) {
     return this.cache.has(key);
   }
+
+  clear() {
+    this.cache.clear();
+  }
+
+  size() {
+    return this.cache.size;
+  }
 }
 
-// Priority Queue for Alerts
+// Priority Queue for Alerts (Min-Heap)
 export class MinHeap {
   constructor() {
     this.heap = [];
@@ -82,5 +90,9 @@ export class MinHeap {
 
   size() {
     return this.heap.length;
+  }
+
+  peek() {
+    return this.heap.length > 0 ? this.heap[0] : null;
   }
 }
