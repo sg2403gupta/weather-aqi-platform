@@ -1,96 +1,76 @@
 const express = require("express");
 const router = express.Router();
-const Weather = require("../models/Weather");
-const axios = require("axios");
+const LRUCache = require("../utils/cache");
+const { categorizeAQI } = require("../utils/algorithms");
+const AQI = require("../models/AQI");
 
-// LRU Cache implementation
-class LRUCache {
-  constructor(capacity) {
-    this.capacity = capacity;
-    this.cache = new Map();
-  }
+// Initialize cache
+const aqiCache = new LRUCache(100);
 
-  get(key) {
-    if (!this.cache.has(key)) return null;
-    const val = this.cache.get(key);
-    this.cache.delete(key);
-    this.cache.set(key, val);
-    return val;
-  }
-
-  set(key, value) {
-    if (this.cache.has(key)) this.cache.delete(key);
-    else if (this.cache.size >= this.capacity) {
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-    }
-    this.cache.set(key, value);
-  }
-}
-
-const weatherCache = new LRUCache(100);
-
-// Get weather data
-router.get("/:city", async (req, res) => {
+// GET /api/aqi/:city
+router.get("/:city", async (req, res, next) => {
   try {
-    const { city } = req.params;
+    const cityName = req.params.city;
+    const cacheKey = `aqi_${cityName.toLowerCase()}`;
 
-    // Check cache
-    const cacheKey = `weather_${city}`;
-    const cached = weatherCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 600000) {
-      return res.json(cached.data);
+    // Check cache (15 minute TTL)
+    const cached = aqiCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 900000) {
+      return res.json({
+        ...cached.data,
+        source: "cache",
+        cachedAt: new Date(cached.timestamp).toISOString(),
+      });
     }
 
-    // Check database (last 10 minutes)
-    const dbData = await Weather.findOne({
-      city,
-      timestamp: { $gte: new Date(Date.now() - 600000) },
-    }).sort({ timestamp: -1 });
+    // Simulated AQI data (replace with OpenAQ API in production)
+    const baseAQI = Math.floor(Math.random() * 150) + 20;
+    const category = categorizeAQI(baseAQI);
 
-    if (dbData) {
-      weatherCache.set(cacheKey, { data: dbData, timestamp: Date.now() });
-      return res.json(dbData);
-    }
-
-    // Fetch from API
-    const geoRes = await axios.get(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${city}&count=1`
-    );
-
-    if (!geoRes.data.results || geoRes.data.results.length === 0) {
-      return res.status(404).json({ error: "City not found" });
-    }
-
-    const { latitude, longitude } = geoRes.data.results[0];
-
-    const weatherRes = await axios.get(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,precipitation,cloud_cover,pressure_msl,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,pressure_msl&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
-    );
-
-    const weatherData = {
-      city,
-      temperature: weatherRes.data.current.temperature_2m,
-      humidity: weatherRes.data.current.relative_humidity_2m,
-      pressure: weatherRes.data.current.pressure_msl,
-      windSpeed: weatherRes.data.current.wind_speed_10m,
-      cloudCover: weatherRes.data.current.cloud_cover,
-      precipitation: weatherRes.data.current.precipitation,
-      hourly: weatherRes.data.hourly,
-      daily: weatherRes.data.daily,
+    const aqiData = {
+      city: cityName,
+      aqi: baseAQI,
+      pm25: Math.floor(baseAQI * 0.4),
+      pm10: Math.floor(baseAQI * 0.6),
+      co: Math.floor(Math.random() * 5) + 1,
+      no2: Math.floor(Math.random() * 40) + 10,
+      o3: Math.floor(Math.random() * 60) + 20,
+      category: category.category,
+      color: category.color,
+      priority: category.priority,
+      description: category.description,
+      source: "simulated",
+      timestamp: new Date().toISOString(),
     };
 
-    // Save to database
-    const weather = new Weather(weatherData);
-    await weather.save();
-
     // Cache it
-    weatherCache.set(cacheKey, { data: weatherData, timestamp: Date.now() });
+    aqiCache.set(cacheKey, {
+      data: aqiData,
+      timestamp: Date.now(),
+    });
 
-    res.json(weatherData);
+    // Save to database if connected
+    if (AQI && AQI.db && AQI.db.readyState === 1) {
+      try {
+        await AQI.create({
+          city: cityName,
+          aqi: baseAQI,
+          pm25: aqiData.pm25,
+          pm10: aqiData.pm10,
+          co: aqiData.co,
+          no2: aqiData.no2,
+          o3: aqiData.o3,
+          category: category.category,
+        });
+      } catch (dbError) {
+        console.error("Database save error:", dbError.message);
+      }
+    }
+
+    res.json(aqiData);
   } catch (error) {
-    console.error("Weather fetch error:", error);
-    res.status(500).json({ error: "Failed to fetch weather data" });
+    console.error("AQI fetch error:", error.message);
+    next(error);
   }
 });
 

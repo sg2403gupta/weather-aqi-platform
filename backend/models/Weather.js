@@ -1,44 +1,53 @@
 const mongoose = require("mongoose");
 
-const hourlySchema = new mongoose.Schema(
+const weatherSchema = new mongoose.Schema(
   {
-    time: String,
+    city: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    coordinates: {
+      latitude: Number,
+      longitude: Number,
+    },
     temperature: Number,
     humidity: Number,
-    precipitationProbability: Number,
-    cloudCover: Number,
     pressure: Number,
+    windSpeed: Number,
+    cloudCover: Number,
+    precipitation: Number,
+    hourlyData: [
+      {
+        time: Date,
+        temperature: Number,
+        humidity: Number,
+        precipitation: Number,
+      },
+    ],
+    dailyData: [
+      {
+        date: Date,
+        maxTemp: Number,
+        minTemp: Number,
+        precipitation: Number,
+      },
+    ],
+    timestamp: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
   },
-  { _id: false }
-);
-
-const dailySchema = new mongoose.Schema(
   {
-    time: [String],
-    temperature_2m_max: [Number],
-    temperature_2m_min: [Number],
-    precipitation_sum: [Number],
+    timestamps: true,
   },
-  { _id: false }
 );
 
-const weatherSchema = new mongoose.Schema({
-  city: { type: String, required: true, index: true },
-
-  temperature: Number,
-  humidity: Number,
-  pressure: Number,
-  windSpeed: Number,
-  cloudCover: Number,
-  precipitation: Number,
-
-  hourly: [hourlySchema], // ARRAY for frontend .map()
-  daily: dailySchema, // Forecast summaries
-
-  timestamp: { type: Date, default: Date.now, index: true },
-});
-
-// Compound index for fast time-based city queries
+// Create compound index for efficient queries
 weatherSchema.index({ city: 1, timestamp: -1 });
+
+// TTL index - automatically delete documents older than 7 days
+weatherSchema.index({ timestamp: 1 }, { expireAfterSeconds: 604800 });
 
 module.exports = mongoose.model("Weather", weatherSchema);
