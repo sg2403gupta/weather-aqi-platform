@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const axios = require("axios");
 
-// LRU Cache
+// ---------------- LRU CACHE ----------------
 class LRUCache {
   constructor(capacity) {
     this.capacity = capacity;
@@ -33,16 +33,20 @@ class LRUCache {
 
 const weatherCache = new LRUCache(100);
 
-// Get coordinates
+// ---------------- GEO CODING ----------------
 async function getCoordinates(cityName) {
   const cacheKey = `geo_${cityName}`;
   if (weatherCache.has(cacheKey)) return weatherCache.get(cacheKey);
 
   const res = await axios.get(
-    `https://geocoding-api.open-meteo.com/v1/search?name=${cityName}&count=1`
+    "https://geocoding-api.open-meteo.com/v1/search",
+    {
+      params: { name: cityName, count: 1 },
+      timeout: 5000,
+    },
   );
 
-  if (res.data.results && res.data.results.length > 0) {
+  if (res.data?.results?.length > 0) {
     const coords = {
       lat: res.data.results[0].latitude,
       lon: res.data.results[0].longitude,
@@ -54,28 +58,29 @@ async function getCoordinates(cityName) {
   return null;
 }
 
-// Get weather data
+// ---------------- WEATHER ROUTE ----------------
 router.get("/:city", async (req, res) => {
   try {
-    const { city } = req.params;
-    const cityKey = city.toLowerCase().trim();
-
-    // Cache check
+    const cityKey = req.params.city.toLowerCase().trim();
     const cacheKey = `weather_${cityKey}`;
+
     const cached = weatherCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 600000) {
       return res.json(cached.data);
     }
 
-    // Get coordinates
     const coords = await getCoordinates(cityKey);
     if (!coords) {
-      return res.status(404).json({ error: "City not found" });
+      return res.status(404).json({
+        temperature: null,
+        hourly: [],
+        daily: [],
+        message: "City not found",
+      });
     }
 
-    // Fetch weather
     const weatherRes = await axios.get(
-      `https://api.open-meteo.com/v1/forecast`,
+      "https://api.open-meteo.com/v1/forecast",
       {
         params: {
           latitude: coords.lat,
@@ -87,68 +92,64 @@ router.get("/:city", async (req, res) => {
           daily: "temperature_2m_max,temperature_2m_min,precipitation_sum",
           timezone: "auto",
         },
-        timeout: 8000,
-      }
+        timeout: 12000,
+      },
     );
 
-    const current = weatherRes.data.current;
-    if (!current) {
-      return res.status(502).json({ error: "Invalid weather API response" });
-    }
+    const current = weatherRes.data?.current;
 
-    /* -------------------- HOURLY (Normalize to Array) -------------------- */
-    const hourlyRaw = weatherRes.data.hourly;
-    if (!hourlyRaw?.time?.length) {
-      return res.status(502).json({ error: "Hourly weather data missing" });
-    }
+    const hourlyRaw = weatherRes.data?.hourly;
+    const dailyRaw = weatherRes.data?.daily;
 
-    const hourly = hourlyRaw.time.map((time, i) => ({
-      time,
-      temperature: hourlyRaw.temperature_2m?.[i],
-      humidity: hourlyRaw.relative_humidity_2m?.[i],
-      precipitationProbability: hourlyRaw.precipitation_probability?.[i],
-      cloudCover: hourlyRaw.cloud_cover?.[i],
-      pressure: hourlyRaw.pressure_msl?.[i],
-    }));
+    const hourly = Array.isArray(hourlyRaw?.time)
+      ? hourlyRaw.time.map((time, i) => ({
+          time,
+          temperature: hourlyRaw.temperature_2m?.[i],
+          humidity: hourlyRaw.relative_humidity_2m?.[i],
+          precipitationProbability: hourlyRaw.precipitation_probability?.[i],
+          cloudCover: hourlyRaw.cloud_cover?.[i],
+          pressure: hourlyRaw.pressure_msl?.[i],
+        }))
+      : [];
 
-    /* -------------------- DAILY (Normalize to Array) -------------------- */
-    const dailyRaw = weatherRes.data.daily;
-    let daily = [];
-
-    if (dailyRaw?.time?.length) {
-      daily = dailyRaw.time.map((date, i) => ({
-        date,
-        maxTemp: dailyRaw.temperature_2m_max?.[i],
-        minTemp: dailyRaw.temperature_2m_min?.[i],
-        precipitation: dailyRaw.precipitation_sum?.[i],
-      }));
-    }
+    const daily = Array.isArray(dailyRaw?.time)
+      ? dailyRaw.time.map((date, i) => ({
+          date,
+          maxTemp: dailyRaw.temperature_2m_max?.[i],
+          minTemp: dailyRaw.temperature_2m_min?.[i],
+          precipitation: dailyRaw.precipitation_sum?.[i],
+        }))
+      : [];
 
     const weatherData = {
       city: coords.name,
-      temperature: current.temperature_2m,
-      humidity: current.relative_humidity_2m,
-      pressure: current.pressure_msl,
-      windSpeed: current.wind_speed_10m,
-      cloudCover: current.cloud_cover,
-      precipitation: current.precipitation,
-      hourly, // ARRAY for frontend .map()
-      daily, // ARRAY for frontend .map()
+      temperature: current?.temperature_2m ?? null,
+      humidity: current?.relative_humidity_2m ?? null,
+      pressure: current?.pressure_msl ?? null,
+      windSpeed: current?.wind_speed_10m ?? null,
+      cloudCover: current?.cloud_cover ?? null,
+      precipitation: current?.precipitation ?? null,
+      hourly,
+      daily,
     };
 
-    // Cache result
-    weatherCache.set(cacheKey, { data: weatherData, timestamp: Date.now() });
+    weatherCache.set(cacheKey, {
+      data: weatherData,
+      timestamp: Date.now(),
+    });
 
     res.json(weatherData);
   } catch (error) {
     console.error(
       "Weather fetch error:",
-      error.response?.data || error.message
+      error.response?.data || error.message,
     );
 
-    res.status(500).json({
-      error: "Failed to fetch weather data",
-      details: error.message,
+    res.status(200).json({
+      temperature: null,
+      hourly: [],
+      daily: [],
+      message: "Weather service unavailable",
     });
   }
 });
